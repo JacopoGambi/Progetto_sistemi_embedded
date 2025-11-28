@@ -1,5 +1,5 @@
-//#include <WiFi.h>
-//#include <PubSubClient.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 #include <Arduino.h>
 
 // === CONFIGURA QUI ===
