@@ -1,4 +1,4 @@
-# Progetto Sistemi Embedded e IoT – Sistema di Apertura Cabine con Tastierino e Servo
+# Progetto Sistemi Embedded e IoT – Sistema di Apertura Cabine con Tastierino e Servomotore
 
 ## Descrizione Generale
 
