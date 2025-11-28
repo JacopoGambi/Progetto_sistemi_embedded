@@ -1,93 +1,250 @@
-#include <WiFi.h>
-#include <PubSubClient.h>
-#include <Arduino.h>
+#include <Keypad.h>
+#include <Servo.h>
 
-// === CONFIGURA QUI ===
-const char* WIFI_SSID     = "iPhone di Martina";
-const char* WIFI_PASS     = "12345678";
+// ------------------------
+// CONFIGURAZIONE KEYPAD
+// ------------------------
+const byte ROWS = 4;
+const byte COLS = 4;
 
-// Adafruit IO (MQTT)
-const char* AIO_SERVER    = "io.adafruit.com";
-const int   AIO_PORT      = 1883;          // 8883 per SSL (richiede WiFiClientSecure)
-const char* AIO_USERNAME  = "jacopogambi";
+// Mappa dei tasti sul keypad
+char hexaKeys[ROWS][COLS] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
+};
 
+// Pin collegati alle righe (R1–R4)
+byte rowPins[ROWS] = {5, 4, 3, 2};
 
-// === PIN ===
-#define LED_VERDE 25
-#define LED_ROSSO 26
-#define PULSANTE  14
+// Pin collegati alle colonne (C1–C4)
+byte colPins[COLS] = {A3, A2, A1, A0};
 
-WiFiClient espClient;
-PubSubClient mqtt(espClient);
+Keypad keypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
 
-bool occupato = false;           // false=LIBERO (verde), true=OCCUPATO (rosso)
-unsigned long lastDebounce = 0;
-const unsigned long debounceMs = 200;
+// ------------------------
+// SERVO & LED
+// ------------------------
+Servo lockServo;
+const int SERVO_PIN = 6;
 
-void setLedsByState() {
-  digitalWrite(LED_VERDE, occupato ? LOW : HIGH);
-  digitalWrite(LED_ROSSO, occupato ? HIGH : LOW);
+// Posizioni del servo (puoi modificarle se serve)
+const int SERVO_LOCK_POS   = 0;   // cabina bloccata
+const int SERVO_UNLOCK_POS = 90;  // cabina sbloccata
+
+const int LED_ROSSO = 13; // led1 tramite r2 (bloccata)
+const int LED_VERDE = 12; // led2 tramite r1 (sbloccata)
+
+// ------------------------
+// CODICE SEGRETO
+// ------------------------
+const byte CODE_LENGTH = 4;
+
+// Codice segreto scelto dall'utente all'avvio
+char secretCode[CODE_LENGTH + 1] = "0000";
+
+// Buffer per il codice che l'utente sta inserendo
+char enteredCode[CODE_LENGTH + 1];
+byte codeIndex = 0;
+
+// Stato cabina
+bool isUnlocked = false;
+
+// Stato: il codice è già stato impostato?
+bool isCodeSet = false;
+
+// ------------------------
+// FUNZIONI DI STATO
+// ------------------------
+void lockCabin() {
+  isUnlocked = false;
+  digitalWrite(LED_ROSSO, HIGH); // rosso acceso
+  digitalWrite(LED_VERDE, LOW);  // verde spento
+  lockServo.write(SERVO_LOCK_POS);
 }
 
-void publishState(bool retain = true) {
-  const char* msg = occupato ? "OCCUPATO" : "LIBERO";
-  mqtt.publish(AIO_FEED, msg, retain);
+void unlockCabin() {
+  isUnlocked = true;
+  digitalWrite(LED_ROSSO, LOW);  // rosso spento
+  digitalWrite(LED_VERDE, HIGH); // verde acceso
+  lockServo.write(SERVO_UNLOCK_POS);
 }
 
-void connectWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(400);
+void clearEnteredCode() {
+  codeIndex = 0;
+  for (byte i = 0; i < CODE_LENGTH; i++) {
+    enteredCode[i] = '\0';
   }
 }
 
-void connectMQTT() {
-  mqtt.setServer(AIO_SERVER, AIO_PORT);
-  while (!mqtt.connected()) {
-    String clientId = "ESP32-ombrellone-" + String((uint32_t)ESP.getEfuseMac(), HEX);
-    if (mqtt.connect(clientId.c_str(), AIO_USERNAME, AIO_KEY)) {
-      // appena connesso pubblichiamo lo stato corrente
-      publishState(true);
-    } else {
-      delay(1000);
+bool checkCode() {
+  enteredCode[CODE_LENGTH] = '\0'; // terminatore stringa
+  for (byte i = 0; i < CODE_LENGTH; i++) {
+    if (enteredCode[i] != secretCode[i]) {
+      return false;
     }
   }
+  return true;
 }
 
+// Copia enteredCode dentro secretCode
+void saveNewCode() {
+  for (byte i = 0; i < CODE_LENGTH; i++) {
+    secretCode[i] = enteredCode[i];
+  }
+  secretCode[CODE_LENGTH] = '\0';
+}
+
+// ------------------------
+// SETUP
+// ------------------------
 void setup() {
-  pinMode(LED_VERDE, OUTPUT);
+  Serial.begin(9600);
+
   pinMode(LED_ROSSO, OUTPUT);
-  pinMode(PULSANTE, INPUT_PULLUP);
+  pinMode(LED_VERDE, OUTPUT);
 
-  // Stato iniziale: LIBERO (verde acceso)
-  occupato = false;
-  setLedsByState();
+  lockServo.attach(SERVO_PIN);
 
-  connectWiFi();
-  connectMQTT();
+  // Stato iniziale: cabina bloccata
+  lockCabin();
+  clearEnteredCode();
+
+  Serial.println("=== IMPOSTAZIONE CODICE INIZIALE ===");
+  Serial.println("Digita un codice di 4 cifre e premi # per confermare");
+  Serial.println("(Durante questa fase * cancella il codice inserito)");
 }
 
+// ------------------------
+// LOOP PRINCIPALE
+// ------------------------
 void loop() {
-  // mantieni connessioni
-  if (WiFi.status() != WL_CONNECTED) connectWiFi();
-  if (!mqtt.connected()) connectMQTT();
-  mqtt.loop();
+  char key = keypad.getKey();
 
-  // lettura pulsante (attivo basso)
-  int reading = digitalRead(PULSANTE);
-  if (reading == LOW && (millis() - lastDebounce) > debounceMs) {
-    lastDebounce = millis();
+  if (!key) {
+    return; // nessun tasto premuto
+  }
 
-    // toggle dello stato
-    occupato = !occupato;
-    setLedsByState();
-    publishState(true); // aggiorna dashboard
+  Serial.print("Tasto premuto: ");
+  Serial.println(key);
 
-    // attesa rilascio (evita ripetizioni)
-    while (digitalRead(PULSANTE) == LOW) {
-      mqtt.loop();
-      delay(10);
+  // ------------------------
+  // FASE 1: IMPOSTAZIONE CODICE (all'avvio)
+  // ------------------------
+  if (!isCodeSet) {
+    // Durante la fase di setup:
+    // * -> cancella il buffer
+    if (key == '*') {
+      clearEnteredCode();
+      Serial.println("Codice cancellato (*) in fase di setup");
+      return;
+    }
+
+    // # -> conferma il codice se lungo CODE_LENGTH
+    if (key == '#') {
+      if (codeIndex == CODE_LENGTH) {
+        saveNewCode();
+        isCodeSet = true;
+        Serial.print("Codice impostato: ");
+        Serial.println(secretCode);
+
+        // Segnale visivo: lampeggio LED verde
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_VERDE, HIGH);
+          delay(150);
+          digitalWrite(LED_VERDE, LOW);
+          delay(150);
+        }
+
+        // Alla fine, cabina bloccata di default
+        lockCabin();
+        clearEnteredCode();
+        Serial.println("Setup completato. Usa il codice per sbloccare la cabina.");
+      } else {
+        Serial.println("ERRORE: il codice deve avere 4 cifre prima di premere #");
+        // lampeggia il rosso per indicare errore
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_ROSSO, LOW);
+          delay(150);
+          digitalWrite(LED_ROSSO, HIGH);
+          delay(150);
+        }
+        clearEnteredCode();
+      }
+      return;
+    }
+
+    // Accettiamo solo numeri per il codice
+    if (key >= '0' && key <= '9') {
+      if (codeIndex < CODE_LENGTH) {
+        enteredCode[codeIndex] = key;
+        codeIndex++;
+        Serial.print("Inserimento codice (setup): ");
+        Serial.println(enteredCode);
+      } else {
+        // Se per qualche motivo si sfora la lunghezza, resettiamo
+        Serial.println("Troppi caratteri inseriti, ricomincia il codice.");
+        clearEnteredCode();
+      }
+    }
+
+    // Ignoriamo A, B, C, D in setup
+    return;
+  }
+
+  // ------------------------
+  // FASE 2: FUNZIONAMENTO NORMALE (codice già impostato)
+  // ------------------------
+
+  // Se viene premuto '*', blocco immediatamente la cabina
+  if (key == '*') {
+    lockCabin();
+    clearEnteredCode();
+    Serial.println("Cabina BLOCCATA da tastierino (*)");
+    return;
+  }
+
+  // Se viene premuto '#', cancella il codice inserito finora
+  if (key == '#') {
+    clearEnteredCode();
+    Serial.println("Codice cancellato (#)");
+    return;
+  }
+
+  // Accettiamo solo tasti numerici per il codice
+  if (key >= '0' && key <= '9') {
+    if (codeIndex < CODE_LENGTH) {
+      enteredCode[codeIndex] = key;
+      codeIndex++;
+      Serial.print("Inserito: ");
+      Serial.println(enteredCode);
+
+      // Se abbiamo raggiunto CODE_LENGTH caratteri, controlliamo il codice
+      if (codeIndex == CODE_LENGTH) {
+        if (checkCode()) {
+          Serial.println("CODICE CORRETTO -> cabina SBLOCCATA");
+          unlockCabin();
+        } else {
+          Serial.println("Codice ERRATO -> cabina resta bloccata");
+
+          // lampeggia il LED rosso per segnalare errore
+          for (int i = 0; i < 3; i++) {
+            digitalWrite(LED_ROSSO, LOW);
+            delay(150);
+            digitalWrite(LED_ROSSO, HIGH);
+            delay(150);
+          }
+          // Assicuriamoci che resti nello stato "bloccato"
+          lockCabin();
+        }
+
+        // Dopo aver controllato il codice, resettiamo il buffer
+        clearEnteredCode();
+      }
+    } else {
+      // Nel dubbio, resettiamo
+      clearEnteredCode();
     }
   }
 }
