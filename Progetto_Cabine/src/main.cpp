@@ -1,250 +1,152 @@
+#include <Arduino.h>
 #include <Keypad.h>
-#include <Servo.h>
+#include <ESP32Servo.h>
 
-// ------------------------
-// CONFIGURAZIONE KEYPAD
-// ------------------------
-const byte ROWS = 4;
-const byte COLS = 4;
+// --- PIN FUNZIONANTI (VERIFICATI) ---
+const int PIN_LED_ROSSO = 23;
+const int PIN_LED_VERDE = 25;
+const int PIN_SERVO = 13;
 
-// Mappa dei tasti sul keypad
-char hexaKeys[ROWS][COLS] = {
+const byte ROWS = 4; 
+const byte COLS = 4; 
+
+char keys[ROWS][COLS] = {
   {'1','2','3','A'},
   {'4','5','6','B'},
   {'7','8','9','C'},
   {'*','0','#','D'}
 };
 
-// Pin collegati alle righe (R1–R4)
-byte rowPins[ROWS] = {5, 4, 3, 2};
+// PIN COLLEGATI 
+byte rowPins[ROWS] = {4, 14, 27, 26}; 
+byte colPins[COLS] = {18, 19, 21, 22}; 
 
-// Pin collegati alle colonne (C1–C4)
-byte colPins[COLS] = {A3, A2, A1, A0};
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+Servo myServo;
 
-Keypad keypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
+// VARIABILI
+String codiceSegreto = "";
+String inputCorrente = "";
+bool inFaseDiSetup = true;
 
-// ------------------------
-// SERVO & LED
-// ------------------------
-Servo lockServo;
-const int SERVO_PIN = 6;
-
-// Posizioni del servo (puoi modificarle se serve)
-const int SERVO_LOCK_POS   = 0;   // cabina bloccata
-const int SERVO_UNLOCK_POS = 90;  // cabina sbloccata
-
-const int LED_ROSSO = 13; // led1 tramite r2 (bloccata)
-const int LED_VERDE = 12; // led2 tramite r1 (sbloccata)
-
-// ------------------------
-// CODICE SEGRETO
-// ------------------------
-const byte CODE_LENGTH = 4;
-
-// Codice segreto scelto dall'utente all'avvio
-char secretCode[CODE_LENGTH + 1] = "0000";
-
-// Buffer per il codice che l'utente sta inserendo
-char enteredCode[CODE_LENGTH + 1];
-byte codeIndex = 0;
-
-// Stato cabina
-bool isUnlocked = false;
-
-// Stato: il codice è già stato impostato?
-bool isCodeSet = false;
-
-// ------------------------
-// FUNZIONI DI STATO
-// ------------------------
-void lockCabin() {
-  isUnlocked = false;
-  digitalWrite(LED_ROSSO, HIGH); // rosso acceso
-  digitalWrite(LED_VERDE, LOW);  // verde spento
-  lockServo.write(SERVO_LOCK_POS);
+// FUNZIONI
+void chiudiCabina() {
+  myServo.write(0); 
+  digitalWrite(PIN_LED_ROSSO, HIGH);
+  digitalWrite(PIN_LED_VERDE, LOW);
 }
 
-void unlockCabin() {
-  isUnlocked = true;
-  digitalWrite(LED_ROSSO, LOW);  // rosso spento
-  digitalWrite(LED_VERDE, HIGH); // verde acceso
-  lockServo.write(SERVO_UNLOCK_POS);
+void apriCabina() {
+  myServo.write(90); 
+  digitalWrite(PIN_LED_ROSSO, LOW);
+  digitalWrite(PIN_LED_VERDE, HIGH);
 }
 
-void clearEnteredCode() {
-  codeIndex = 0;
-  for (byte i = 0; i < CODE_LENGTH; i++) {
-    enteredCode[i] = '\0';
-  }
+// Lampeggio veloce Verde (Conferma)
+void feedbackPositivo() {
+  digitalWrite(PIN_LED_VERDE, LOW); delay(100);
+  digitalWrite(PIN_LED_VERDE, HIGH); delay(100);
+  digitalWrite(PIN_LED_VERDE, LOW); delay(100);
+  digitalWrite(PIN_LED_VERDE, HIGH); 
 }
 
-bool checkCode() {
-  enteredCode[CODE_LENGTH] = '\0'; // terminatore stringa
-  for (byte i = 0; i < CODE_LENGTH; i++) {
-    if (enteredCode[i] != secretCode[i]) {
-      return false;
-    }
-  }
-  return true;
+// Lampeggio veloce Rosso (Errore)
+void feedbackNegativo() {
+  digitalWrite(PIN_LED_ROSSO, LOW); delay(100);
+  digitalWrite(PIN_LED_ROSSO, HIGH); delay(100);
+  digitalWrite(PIN_LED_ROSSO, LOW); delay(100);
+  digitalWrite(PIN_LED_ROSSO, HIGH);
 }
 
-// Copia enteredCode dentro secretCode
-void saveNewCode() {
-  for (byte i = 0; i < CODE_LENGTH; i++) {
-    secretCode[i] = enteredCode[i];
-  }
-  secretCode[CODE_LENGTH] = '\0';
-}
-
-// ------------------------
-// SETUP
-// ------------------------
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
+  Serial.println("--- AVVIO CABINA ---");
 
-  pinMode(LED_ROSSO, OUTPUT);
-  pinMode(LED_VERDE, OUTPUT);
+  pinMode(PIN_LED_ROSSO, OUTPUT);
+  pinMode(PIN_LED_VERDE, OUTPUT);
 
-  lockServo.attach(SERVO_PIN);
+  myServo.setPeriodHertz(50); 
+  myServo.attach(PIN_SERVO, 500, 2400);
 
-  // Stato iniziale: cabina bloccata
-  lockCabin();
-  clearEnteredCode();
-
-  Serial.println("=== IMPOSTAZIONE CODICE INIZIALE ===");
-  Serial.println("Digita un codice di 4 cifre e premi # per confermare");
-  Serial.println("(Durante questa fase * cancella il codice inserito)");
+  // Stato iniziale
+  chiudiCabina();
+  
+  // Segnale di vita all'avvio: Tutti i led lampeggiano una volta
+  digitalWrite(PIN_LED_VERDE, HIGH); 
+  delay(500); 
+  digitalWrite(PIN_LED_VERDE, LOW);
+  Serial.println("INSERISCI NUOVO CODICE (4 cifre) E PREMI #");
 }
 
-// ------------------------
-// LOOP PRINCIPALE
-// ------------------------
 void loop() {
   char key = keypad.getKey();
 
-  if (!key) {
-    return; // nessun tasto premuto
-  }
+  if (key) {
+    Serial.print("Tasto: "); Serial.println(key); // Debug per terminale
 
-  Serial.print("Tasto premuto: ");
-  Serial.println(key);
-
-  // ------------------------
-  // FASE 1: IMPOSTAZIONE CODICE (all'avvio)
-  // ------------------------
-  if (!isCodeSet) {
-    // Durante la fase di setup:
-    // * -> cancella il buffer
-    if (key == '*') {
-      clearEnteredCode();
-      Serial.println("Codice cancellato (*) in fase di setup");
-      return;
-    }
-
-    // # -> conferma il codice se lungo CODE_LENGTH
-    if (key == '#') {
-      if (codeIndex == CODE_LENGTH) {
-        saveNewCode();
-        isCodeSet = true;
-        Serial.print("Codice impostato: ");
-        Serial.println(secretCode);
-
-        // Segnale visivo: lampeggio LED verde
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_VERDE, HIGH);
-          delay(150);
-          digitalWrite(LED_VERDE, LOW);
-          delay(150);
-        }
-
-        // Alla fine, cabina bloccata di default
-        lockCabin();
-        clearEnteredCode();
-        Serial.println("Setup completato. Usa il codice per sbloccare la cabina.");
-      } else {
-        Serial.println("ERRORE: il codice deve avere 4 cifre prima di premere #");
-        // lampeggia il rosso per indicare errore
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_ROSSO, LOW);
-          delay(150);
-          digitalWrite(LED_ROSSO, HIGH);
-          delay(150);
-        }
-        clearEnteredCode();
-      }
-      return;
-    }
-
-    // Accettiamo solo numeri per il codice
-    if (key >= '0' && key <= '9') {
-      if (codeIndex < CODE_LENGTH) {
-        enteredCode[codeIndex] = key;
-        codeIndex++;
-        Serial.print("Inserimento codice (setup): ");
-        Serial.println(enteredCode);
-      } else {
-        // Se per qualche motivo si sfora la lunghezza, resettiamo
-        Serial.println("Troppi caratteri inseriti, ricomincia il codice.");
-        clearEnteredCode();
-      }
-    }
-
-    // Ignoriamo A, B, C, D in setup
-    return;
-  }
-
-  // ------------------------
-  // FASE 2: FUNZIONAMENTO NORMALE (codice già impostato)
-  // ------------------------
-
-  // Se viene premuto '*', blocco immediatamente la cabina
-  if (key == '*') {
-    lockCabin();
-    clearEnteredCode();
-    Serial.println("Cabina BLOCCATA da tastierino (*)");
-    return;
-  }
-
-  // Se viene premuto '#', cancella il codice inserito finora
-  if (key == '#') {
-    clearEnteredCode();
-    Serial.println("Codice cancellato (#)");
-    return;
-  }
-
-  // Accettiamo solo tasti numerici per il codice
-  if (key >= '0' && key <= '9') {
-    if (codeIndex < CODE_LENGTH) {
-      enteredCode[codeIndex] = key;
-      codeIndex++;
-      Serial.print("Inserito: ");
-      Serial.println(enteredCode);
-
-      // Se abbiamo raggiunto CODE_LENGTH caratteri, controlliamo il codice
-      if (codeIndex == CODE_LENGTH) {
-        if (checkCode()) {
-          Serial.println("CODICE CORRETTO -> cabina SBLOCCATA");
-          unlockCabin();
+    // --- FASE 1: CREAZIONE PASSWORD ---
+    if (inFaseDiSetup) {
+      if (key == '#') {
+        if (inputCorrente.length() == 4) {
+          codiceSegreto = inputCorrente;
+          inFaseDiSetup = false;
+          inputCorrente = "";
+          Serial.println("PASSWORD SALVATA!");
+          feedbackPositivo(); // Lampeggio verde
+          chiudiCabina();     // Torna rosso fisso e servo chiuso
         } else {
-          Serial.println("Codice ERRATO -> cabina resta bloccata");
-
-          // lampeggia il LED rosso per segnalare errore
-          for (int i = 0; i < 3; i++) {
-            digitalWrite(LED_ROSSO, LOW);
-            delay(150);
-            digitalWrite(LED_ROSSO, HIGH);
-            delay(150);
-          }
-          // Assicuriamoci che resti nello stato "bloccato"
-          lockCabin();
+          Serial.println("ERRORE: Servono 4 numeri.");
+          inputCorrente = "";
+          feedbackNegativo();
         }
-
-        // Dopo aver controllato il codice, resettiamo il buffer
-        clearEnteredCode();
+      } else if (key == '*') {
+        inputCorrente = "";
+        Serial.println("Reset.");
+        feedbackNegativo();
+      } else {
+        // Accetta solo numeri
+        if (key >= '0' && key <= '9') {
+          if (inputCorrente.length() < 4) {
+            inputCorrente += key;
+            // Piccolo feedback visivo: spegne il led rosso un attimo quando premi
+            digitalWrite(PIN_LED_ROSSO, LOW); delay(50); digitalWrite(PIN_LED_ROSSO, HIGH);
+          }
+        }
       }
-    } else {
-      // Nel dubbio, resettiamo
-      clearEnteredCode();
+    } 
+    
+    // --- FASE 2: APERTURA/CHIUSURA ---
+    else {
+      // Tasto CHIUDI IMMEDIATAMENTE
+      if (key == '*') {
+        chiudiCabina();
+        inputCorrente = "";
+        Serial.println("CHIUSURA FORZATA.");
+      } 
+      // Tasto RESET INSERIMENTO
+      else if (key == '#') {
+        inputCorrente = "";
+        Serial.println("Input resettato.");
+      } 
+      // INSERIMENTO NUMERI
+      else {
+        if (key >= '0' && key <= '9') {
+            inputCorrente += key;
+            Serial.println(inputCorrente);
+            
+            // Check immediato alla 4a cifra
+            if (inputCorrente.length() == 4) {
+              if (inputCorrente == codiceSegreto) {
+                apriCabina();
+                inputCorrente = "";
+              } else {
+                Serial.println("PASSWORD ERRATA");
+                feedbackNegativo();
+                inputCorrente = "";
+              }
+            }
+        }
+      }
     }
   }
 }

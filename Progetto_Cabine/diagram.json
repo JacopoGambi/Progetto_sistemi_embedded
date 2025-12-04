@@ -1,52 +1,52 @@
 {
   "version": 1,
-  "author": "Uri Shaked",
+  "author": "Jacopo",
   "editor": "wokwi",
   "parts": [
-    { "type": "wokwi-arduino-uno", "id": "uno", "top": 200, "left": 20, "attrs": {} },
-    { "type": "wokwi-membrane-keypad", "id": "keypad", "top": 140, "left": 360, "attrs": {} },
-    {
-      "type": "wokwi-servo",
-      "id": "servo",
-      "top": 17.2,
-      "left": 403.2,
-      "attrs": { "hornColor": "black" }
-    },
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 196.7, "left": -14.6, "attrs": {} },
+    { "type": "wokwi-membrane-keypad", "id": "keypad", "top": 84.4, "left": 360.8, "attrs": {} },
+    { "type": "wokwi-servo", "id": "servo", "top": -59.6, "left": 211.2, "attrs": {} },
     {
       "type": "wokwi-resistor",
       "id": "r1",
-      "top": 138.35,
-      "left": 220.8,
+      "top": 99.95,
+      "left": 86.4,
       "attrs": { "value": "220" }
     },
-    { "type": "wokwi-led", "id": "led1", "top": 82.8, "left": 42.2, "attrs": { "color": "red" } },
-    { "type": "wokwi-led", "id": "led2", "top": 73.2, "left": 167, "attrs": { "color": "green" } },
+    { "type": "wokwi-led", "id": "led1", "top": 63.6, "left": -5.8, "attrs": { "color": "red" } },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": 63.6,
+      "left": 51.8,
+      "attrs": { "color": "green" }
+    },
     {
       "type": "wokwi-resistor",
       "id": "r2",
-      "top": 119.15,
-      "left": 86.4,
+      "top": 167.15,
+      "left": 28.8,
       "attrs": { "value": "220" }
     }
   ],
   "connections": [
-    [ "uno:6", "servo:PWM", "orange", [ "v-40", "*", "h0", "h-52" ] ],
-    [ "uno:5V", "servo:V+", "red", [ "v16", "h-118", "v-244", "*", "h-56" ] ],
-    [ "uno:GND.1", "servo:GND", "black", [ "v-46", "*", "v88", "h-60" ] ],
-    [ "uno:A3", "keypad:C1", "brown", [ "v116", "*", "h0", "v0" ] ],
-    [ "uno:A2", "keypad:C2", "gray", [ "v120", "*", "h0", "v0" ] ],
-    [ "uno:A1", "keypad:C3", "orange", [ "v124", "*", "h0", "v0" ] ],
-    [ "uno:A0", "keypad:C4", "pink", [ "v128", "*", "h0", "v0" ] ],
-    [ "uno:5", "keypad:R1", "blue", [ "v-34", "h96", "*", "v12" ] ],
-    [ "uno:4", "keypad:R2", "green", [ "v-30", "h80", "*", "v16" ] ],
-    [ "uno:3", "keypad:R3", "purple", [ "v-26", "h64", "*", "v20" ] ],
-    [ "uno:2", "keypad:R4", "gold", [ "v-22", "h48", "*", "v24" ] ],
-    [ "led2:A", "r1:1", "green", [ "v0" ] ],
-    [ "r1:2", "uno:12", "green", [ "v38.4", "h-126" ] ],
-    [ "led2:C", "uno:GND.1", "green", [ "v19.2", "h-38" ] ],
-    [ "led1:C", "uno:GND.1", "red", [ "v0" ] ],
-    [ "led1:A", "r2:1", "green", [ "v0" ] ],
-    [ "r2:2", "uno:13", "red", [ "v0" ] ]
+    [ "esp:D13", "servo:PWM", "orange", [] ],
+    [ "esp:3V3", "servo:V+", "red", [] ],
+    [ "esp:GND.1", "servo:GND", "black", [] ],
+    [ "esp:D18", "keypad:C1", "brown", [ "h243.5", "v140.7" ] ],
+    [ "esp:D19", "keypad:C2", "gray", [ "h224.3", "v150.2" ] ],
+    [ "esp:D21", "keypad:C3", "orange", [ "h205.1", "v159.5" ] ],
+    [ "esp:D22", "keypad:C4", "pink", [ "h185.9", "v188.4" ] ],
+    [ "esp:D4", "keypad:R1", "blue", [ "v92.8", "h368.3" ] ],
+    [ "esp:D14", "keypad:R2", "green", [ "h128.6", "v102.4" ] ],
+    [ "esp:D27", "keypad:R3", "purple", [ "h128.6", "v92.4", "h355.5" ] ],
+    [ "esp:D26", "keypad:R4", "gold", [ "v140.6", "h493.6" ] ],
+    [ "led2:A", "r1:1", "green", [] ],
+    [ "r1:2", "esp:D25", "green", [ "h27.6", "v144" ] ],
+    [ "led2:C", "esp:GND.1", "green", [ "v19.2", "h19.9" ] ],
+    [ "led1:C", "esp:GND.1", "red", [ "h0.4", "v259.3" ] ],
+    [ "led1:A", "r2:1", "red", [ "v19.2", "h-86.4" ] ],
+    [ "r2:2", "esp:D23", "red", [ "h8.4", "v76.7" ] ]
   ],
   "dependencies": {}
 }
